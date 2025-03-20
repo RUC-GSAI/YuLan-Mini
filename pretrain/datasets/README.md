@@ -33,8 +33,8 @@ The JSON files in this folder show the **real data ratio** for each curriculum p
 |`23`|[23_20241120_033942.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/23_20241120_033942.json)||
 |`24`|[24_20241121_133110.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/24_20241121_133110.json)||
 |`25`|[25_20241123_030124.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/25_20241123_030124.json)||
-|`26`|[26_20241127_205447.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/26_20241127_205447.json)|[26_20241211_015209.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/26_20241211_015209.json)|
-|`27`||[27_20241213_051741.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/27_20241213_051741.json)|
+|`26`|[26_20241127_205447.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/26_20241127_205447.json)|[26_20241211_015209.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/26_20241211_015209.json) (Tokenized: [🤗 YuLan-Mini-Datasets-Phasae-26](https://huggingface.co/datasets/yulan-team/YuLan-Mini-Datasets-Phasae-26))|
+|`27`||[27_20241213_051741.json](https://github.com/RUC-GSAI/YuLan-Mini/tree/main/pretrain/datasets/data_mix/27_20241213_051741.json) (Tokenized: [🤗 YuLan-Mini-Datasets-Phasae-27](https://huggingface.co/datasets/yulan-team/YuLan-Mini-Datasets-Phasae-27))|
 
 ## How to Download the Data
 
