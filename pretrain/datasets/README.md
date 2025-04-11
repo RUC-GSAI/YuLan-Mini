@@ -59,6 +59,8 @@ bash download_datasets_step3.sh urls_selected.txt
 
 ## List of Open Source Datasets Used
 
+- **🔥 Updated (April 11, 2025): For a clearer presentation of the information, see the table at this link: [link](https://docs.google.com/spreadsheets/d/1YP8-loVUxgxo36UEpOwflR3GRHLieBnLlCy8g10g8RU/edit?gid=0#gid=0).**
+
 This section provides links to the datasets used.
 
 | Dataset      | Link                        |
