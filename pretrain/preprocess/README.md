@@ -8,15 +8,42 @@ This part introduces the data preprocessing methods, including text data preproc
 
 ### 1. Text Formatting
 
-For Jupyter Notebook (derived from the-stack-v2), we conduct the following process:
+#### Jupyter Notebook
 
-1. File level de-duplication
-2. Split by repository stars and forks: [sum>0 split (with prefix md2)](https://huggingface.co/datasets/yulan-team/YuLan-Mini-Text-Datasets/viewer/code-the-stack-v2-Jupyter_Notebook-md2_scored_classifier-score_4) and [sum=0 (with prefix md)](https://huggingface.co/datasets/yulan-team/YuLan-Mini-Text-Datasets/viewer/code-the-stack-v2-Jupyter_Notebook-md_scored_classified-score_5?views%5B%5D=code_the_stack_v2_jupyter_notebook_md_scored_classified_score_5)
-3. Add Python version as Markdown annotation (for conditioned learning)
-4. Line leve de-duplication using text-distance algorithm to filter data like progress bar, csv table, etc
-5. A random number of code snippets will be formatted using yapf with random styles
-6. Convert Markdown block, Python block, and execuation results into Markdown format
-7. Scoring is done using [python-edu-scorer](https://huggingface.co/HuggingFaceTB/python-edu-scorer) (typical examples: high-scoring code resembles a **tutorial-style notebook**, while low-scoring code looks more like **spreadsheet processing**)
+1. Collect data from **the-stack-v2**.
+2. Perform file-level de-duplication.
+3. Split data based on repository stars and forks:
+   - [Sum > 0 (prefixed with `md2`)](https://huggingface.co/datasets/yulan-team/YuLan-Mini-Text-Datasets/viewer/code-the-stack-v2-Jupyter_Notebook-md2_scored_classifier-score_4).
+   - [Sum = 0 (prefixed with `md`)](https://huggingface.co/datasets/yulan-team/YuLan-Mini-Text-Datasets/viewer/code-the-stack-v2-Jupyter_Notebook-md_scored_classified-score_5?views%5B%5D=code_the_stack_v2_jupyter_notebook_md_scored_classified_score_5).
+4. Add Python version as a Markdown annotation (to enable conditioned learning).
+5. Perform line-level de-duplication using a text-distance algorithm to filter out repetitive content, such as progress bars, CSV tables, etc.
+6. Randomly format a subset of code snippets using **yapf** with random styles.
+7. Convert Markdown blocks, Python blocks, and execution results into Markdown format.
+8. Score data using [python-edu-scorer](https://huggingface.co/HuggingFaceTB/python-edu-scorer). 
+   - High-scoring examples resemble **tutorial-style notebooks**. 
+   - Low-scoring examples resemble **spreadsheet processing**.
+
+#### Python
+
+1. Collect data from **the-stack-v2**, **MNBVC**, **SmolLM**, **StarCoder**, **OpenCoder**.
+2. Additionally, synthesize pre-train and sft data using Qwen2.5 series models.
+3. Perform file-level de-duplication.
+4. Apply text metrics filtering (following **DeepSeek Coder** guidelines).
+5. Score data using [python-edu-scorer](https://huggingface.co/HuggingFaceTB/python-edu-scorer).
+
+#### C, C++, Rust, HTML, etc.
+
+1. Collect data from **the-stack-v2**, **MNBVC**, **OpenCoder**, etc.
+2. Apply text metrics filtering (following **DeepSeek Coder** guidelines).
+
+> Hugging Face has recently open-sourced their [scorers for other languages](https://huggingface.co/collections/HuggingFaceTB/the-ultimate-collection-of-code-classifiers-67b5aa3eb8994a4b71453005), and readers are encouraged to check them out.
+
+#### Math
+
+1. Collect data from **ProofPile2**, **AutoMathText**, and **OpenWebMath-Pro**.
+2. Additionally, retrieve math content from **fineweb-edu** and **dclm** using the [math-classifier](https://huggingface.co/yulan-team/math-classifier), and synthesize pre-train and sft data using Qwen2.5 series models.
+3. Perform file-level de-duplication.
+4. Score data using [fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier).
 
 ### 2. Data Filtering Pipeline
 
