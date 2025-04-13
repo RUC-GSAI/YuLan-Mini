@@ -4,8 +4,6 @@ This part introduces the data preprocessing methods, including text data preproc
 
 ## I. Text Data Preprocessing
 
-> We will release the related code soon.
-
 ### 1. Text Formatting
 
 #### Jupyter Notebook
