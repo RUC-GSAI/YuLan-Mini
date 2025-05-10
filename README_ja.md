@@ -5,7 +5,7 @@
 </h4>
 
 <div align=center>
-<img src="assets/YuLan-logo.jpg" width="400px">
+<img src="assets/YuLan-logo.png" width="400px">
 <h1>YuLan-Mini: データ効率の高いオープンな言語モデル</h1>
 <a href="https://github.com/RUC-GSAI/YuLan-Mini/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue" alt="license"></a>
 <a href="https://arxiv.org/abs/2412.17743" target="_blank"><img src=https://img.shields.io/badge/arXiv-b5212f.svg?logo=arxiv></a>
