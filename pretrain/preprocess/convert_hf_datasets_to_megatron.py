@@ -468,6 +468,7 @@ def convert_hf_dataset(dataset_path: str, json_keys: List[str], output_prefix: s
     level = 'document'
 
     dataset_names = sorted(os.listdir(dataset_path))
+    dataset_names = [d for d in dataset_names if not d.startswith('.')]
     in_ss_out_names = [{'partition': os.path.join(dataset_path, d), 'output_prefix': d, 'json_keys': json_keys} for d in dataset_names]
 
     # process the dataset in parallel
