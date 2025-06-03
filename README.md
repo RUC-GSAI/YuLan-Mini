@@ -20,6 +20,7 @@ YuLan-Mini is a lightweight language model with 2.4 billion parameters. It achie
 
 ## News
 
+- [2025.05.16] 🥳 *YuLan-Mini: Pushing the Limits of Open Data-efficient Language Model* has been accepted by ACL 2025 Main Conference.
 - [2025.04.11] A clearer data mixture [table](https://docs.google.com/spreadsheets/d/1YP8-loVUxgxo36UEpOwflR3GRHLieBnLlCy8g10g8RU/edit?gid=0#gid=0).
 - [2025.03.16] Math, code, & reasoninig classifiers released
 - [2025.03.07] W&B Logs for ablation studies released
