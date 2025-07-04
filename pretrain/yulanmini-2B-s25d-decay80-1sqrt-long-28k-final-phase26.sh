@@ -37,37 +37,24 @@ elif [ "$CONTINUE" = true ]; then
     UPDATE_TRAINED_STEPS_AND_EPOCHS=false
 fi
 
-MODIFY_TRAINER_STATE=false
-
-# 计算上一次的最新checkpoint
-last_stage_latest_checkpoint=$(ls output_soft_link/$last_stage_job_name | grep checkpoint | grep -v rebalanced | grep -v rms_norm | sort -r | head -n 1)
-
-# 如果ALLOW_0_CHECKPOINT=false，检查获得的checkpoint不应该是000结尾
-if [ "$ALLOW_0_CHECKPOINT" = false ] && [[ "$last_stage_latest_checkpoint" == *000 ]]; then
-    echo "last_stage_latest_checkpoint is 000, exit"
-    exit 1
-fi
-
-# 如果没有rms_norm，则重新平衡权重
-if [ ! -d "output_soft_link/$last_stage_job_name/$last_stage_latest_checkpoint-rms_norm" ] && [ "$DO_RMS_NORM" = true ]; then
-    python scripts/rebalance_weight.py output_soft_link/$last_stage_job_name/$last_stage_latest_checkpoint
-fi
+MASTER_PORT=36000
+NNODES=4
+export WANDB_MODE=offline
 
 # dataset path
 # FETCH_TIME=""  # 注意！现在FETCH_TIME自动从launch中传入！！！！所以在submit_to_slurm.sh中设置！！！！
-DATA_PATH=hf_dataset/$DATASET_MODEL_NAME/$FETCH_TIME
-
-MODEL_PATH=output/$last_stage_job_name
+DATA_PATH=data_path
+MODEL_PATH=model_path
 
 # model max length
 MODEL_MAX_LENGTH=28672
 
 # batch size
 # 下面的BS 节点数   GPU数   CONTEXT-SIZE
-# PER_DEVICE_TRAIN_BATCH_SIZE=18
+PER_DEVICE_TRAIN_BATCH_SIZE=1
 
 # gradient accumulation steps
-GRADIENT_ACCUMULATION_STEPS=1
+GRADIENT_ACCUMULATION_STEPS=4
 
 # learning rate
 LEARNING_RATE=1e-2
@@ -82,6 +69,9 @@ WEIGHT_DECAY=0.1
 # deepspeed config path
 DEEPSPEED_CONFIG_PATH='ds2_config_adamw.json'
 
+LOG_PREFIX=$(basename $DATA_PATH)-$(basename $MODEL_PATH)-node-$NNODES-len-$MODEL_MAX_LENGTH-lr-$LEARNING_RATE-bs-$PER_DEVICE_TRAIN_BATCH_SIZE-gacc-$GRADIENT_ACCUMULATION_STEPS
+JOB_NAME=$LOG_PREFIX
+LOG_DIR=log/$JOB_NAME
 OUTPUT_DIR=output/${JOB_NAME}
 mkdir -p ${OUTPUT_DIR}
 
@@ -110,20 +100,19 @@ mkdir -p ${OUTPUT_DIR}
     --learning_rate $LEARNING_RATE \
     --warmup_ratio $WARMUP_RATIO \
     --weight_decay $WEIGHT_DECAY \
-    --logging_steps 3 \
+    --logging_steps 1 \
     --deepspeed ${DEEPSPEED_CONFIG_PATH} \
     --gradient_checkpointing True \
-    --deepspeed_gradient_checkpointing False \
     --report_to tensorboard \
-    --tf32 True \
+    --tf32 False \
     --lr_scheduler_type "linear" \
     --flash_attention \
     --use_wsd \
     --log_dir $LOG_DIR \
+    --log_level debug \
     --profile False \
     --torch_compile \
     --max_grad_norm 1 \
-    --hyper_param_decay_rate 0 \
     --logging_dir ${LOG_DIR} \
     --ddp_timeout 3600 \
     --adam_beta1 0.9 \
@@ -164,12 +153,11 @@ mkdir -p ${OUTPUT_DIR}
     --wesar_weights True \
     --use_norm_alpha True \
     --use_emb_alpha False \
-    --resume_from_checkpoint $MODEL_PATH \
     --add_rms_norm $DO_RMS_NORM \
-    --modify_trainer_state $MODIFY_TRAINER_STATE \
     --update_trained_steps_and_epochs $UPDATE_TRAINED_STEPS_AND_EPOCHS \
     --start_lambda $START_LAMBDA \
     --end_lambda $END_LAMBDA \
     --start_global_step $START_GLOBAL_STEP \
     --end_global_step $END_GLOBAL_STEP \
     --wsd_style 1sqrt \
+    --resume_from_checkpoint $MODEL_PATH \
