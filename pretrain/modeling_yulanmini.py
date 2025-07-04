@@ -76,7 +76,10 @@ from liger_kernel.transformers.fused_linear_cross_entropy import \
 from liger_kernel.transformers.layer_norm import LigerLayerNorm
 from liger_kernel.transformers.rms_norm import LigerRMSNorm
 from liger_kernel.transformers.rope import liger_rotary_pos_emb
+from rope import liger_rotary_pos_emb as liger_rotary_pos_emb_flash
 from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
+
+FLASH_ROPE = True
 
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", "0"))
 RANK = int(os.getenv("RANK", "0"))
@@ -344,7 +347,7 @@ def apply_rotary_pos_emb(q,
                          cos,
                          sin,
                          position_ids,
-                         unsqueeze_dim=1,
+                         unsqueeze_dim=None,
                          fast=False):
     """Applies Rotary Position Embedding to the query and key tensors.
     Args:
@@ -365,8 +368,22 @@ def apply_rotary_pos_emb(q,
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
+    if FLASH_ROPE:
+        if unsqueeze_dim is None:
+            unsqueeze_dim = 2
+        assert unsqueeze_dim == 2
+    else:
+        if unsqueeze_dim is None:
+            unsqueeze_dim = 1
+        assert unsqueeze_dim == 1
+
     if fast:
-        return liger_rotary_pos_emb(q, k, cos, sin, position_ids,
+        # print(f"position_ids: {position_ids}")
+        if FLASH_ROPE:
+            return liger_rotary_pos_emb_flash(q, k, cos, sin, position_ids,
+                                    unsqueeze_dim)
+        else:
+            return liger_rotary_pos_emb(q, k, cos, sin, position_ids,
                                     unsqueeze_dim)
 
     # cos = cos[position_ids].unsqueeze(unsqueeze_dim)
@@ -422,29 +439,46 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
+def repeat_kv_flash(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, seqlen, num_attention_heads, head_dim)
+    """
+    batch, slen, num_key_value_heads, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, :, None, :].expand(batch,
+                                                    slen,
+                                                    num_key_value_heads,  n_rep, head_dim)
+    return hidden_states.reshape(batch, slen, num_key_value_heads * n_rep,
+                                 head_dim)
+
 def get_hidden_states_logger(layer_idx, num_hidden_layers=None):
     if num_hidden_layers is None:
         log_interval = None
     else:
-        log_interval = (num_hidden_layers - 1) // 5
+        log_interval = 1
 
     @torch.no_grad()
     def log_hidden_states_decoder_layers(name, hidden_states):
-        return
         if layer_idx % log_interval == 0 and wandb.run is not None and wandb.config.get("global_step", 0) % 23 == 0:
-            layer = layer_idx // log_interval + 1
-            # wandb.log({f"hidden_states_var/{layer}_{name}": torch.var(hidden_states, dim=-1).mean().item()}, commit=False)
-            # wandb.log({f"hidden_states_mean/{layer}_{name}": torch.mean(hidden_states, dim=-1).mean().item()}, commit=False)
-            # wandb.log({f"hidden_states_rms/{layer}_{name}": torch.sqrt(torch.mean(hidden_states**2, dim=-1)).mean().item()}, commit=False)
+            layer = layer_idx
+            try:
+                wandb.log({f"hidden_states_var/{layer}_{name}": torch.var(hidden_states, dim=-1).mean().item()}, commit=False)
+                wandb.log({f"hidden_states_mean/{layer}_{name}": torch.mean(hidden_states, dim=-1).mean().item()}, commit=False)
+                wandb.log({f"hidden_states_rms/{layer}_{name}": torch.sqrt(torch.mean(hidden_states**2, dim=-1)).mean().item()}, commit=False)
+            except Exception as e:
+                print(f"Error logging hidden states: {e}")
 
     @torch.no_grad()
     def log_hidden_states_transformers(layer_idx, name, hidden_states):
-        return
         if wandb.run is not None and  wandb.config.get("global_step", 0) % 23 == 0:
-            pass
-            # wandb.log({f"hidden_states_var/{layer_idx}_{name}": torch.var(hidden_states, dim=-1).mean().item()}, commit=False)
-            # wandb.log({f"hidden_states_mean/{layer_idx}_{name}": torch.mean(hidden_states, dim=-1).mean().item()}, commit=False)
-            # wandb.log({f"hidden_states_rms/{layer_idx}_{name}": torch.sqrt(torch.mean(hidden_states**2, dim=-1)).mean().item()}, commit=False)
+            try:
+                wandb.log({f"hidden_states_var/{layer_idx}_{name}": torch.var(hidden_states, dim=-1).mean().item()}, commit=False)
+                wandb.log({f"hidden_states_mean/{layer_idx}_{name}": torch.mean(hidden_states, dim=-1).mean().item()}, commit=False)
+                wandb.log({f"hidden_states_rms/{layer_idx}_{name}": torch.sqrt(torch.mean(hidden_states**2, dim=-1)).mean().item()}, commit=False)
+            except Exception as e:
+                print(f"Error logging hidden states: {e}")
 
     if num_hidden_layers is None:
         return log_hidden_states_transformers
@@ -455,16 +489,18 @@ def get_od_weight_logger(layer_idx, num_hidden_layers=None):
     if num_hidden_layers is None:
         log_interval = None
     else:
-        log_interval = (num_hidden_layers - 1) // 5
+        log_interval = 1
 
     @torch.no_grad()
     def log_od_weight(name, weight_matrix):
-        return
         if layer_idx % log_interval == 0 and wandb.run is not None and wandb.config.get("global_step", 0) % 23 == 0:
-            layer = layer_idx // log_interval + 1
-            # wandb.log({f"weight_var/{layer}_{name}": torch.var(weight_matrix).item()}, commit=False)
-            # wandb.log({f"weight_mean/{layer}_{name}": torch.mean(weight_matrix).item()}, commit=False)
-            # wandb.log({f"weight_rms/{layer}_{name}": torch.sqrt(torch.mean(weight_matrix**2)).item()}, commit=False)
+            layer = layer_idx
+            try:
+                wandb.log({f"weight_var/{layer}_{name}": torch.var(weight_matrix).item()}, commit=False)
+                wandb.log({f"weight_mean/{layer}_{name}": torch.mean(weight_matrix).item()}, commit=False)
+                wandb.log({f"weight_rms/{layer}_{name}": torch.sqrt(torch.mean(weight_matrix**2)).item()}, commit=False)
+            except Exception as e:
+                print(f"Error logging weight: {e}")
 
     return log_od_weight
 
@@ -581,18 +617,28 @@ class YuLanMiniAttention(nn.Module):
         value_states = self.v_proj(hidden_states)
         value_states = value_states * self.v_proj_alpha
 
-        query_states = query_states.view(bsz, q_len, self.num_heads,
-                                         self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
-                                     self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
-                                         self.head_dim).transpose(1, 2)
+
+        if FLASH_ROPE:
+            query_states = query_states.view(bsz, q_len, self.num_heads,
+                                            self.head_dim)
+            key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
+                                        self.head_dim)
+            value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
+                                            self.head_dim)
+        else:
+            query_states = query_states.view(bsz, q_len, self.num_heads,
+                                            self.head_dim).transpose(1, 2)
+            key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
+                                        self.head_dim).transpose(1, 2)
+            value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
+                                            self.head_dim).transpose(1, 2)
 
         if self.qk_layernorm:
+            raise NotImplementedError("qk_layernorm is not implemented")
             query_states = self.q_layernorm(query_states)
             key_states = self.k_layernorm(key_states)
 
-        kv_seq_len = key_states.shape[-2]
+        kv_seq_len = key_states.shape[-3 if FLASH_ROPE else -2]
         if past_key_value is not None:
             if self.layer_idx is None:
                 raise ValueError(
@@ -615,8 +661,12 @@ class YuLanMiniAttention(nn.Module):
                 key_states, value_states, self.layer_idx, cache_kwargs)
 
         # repeat k/v heads if n_kv_heads < n_heads
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
+        if FLASH_ROPE:
+            key_states = repeat_kv_flash(key_states, self.num_key_value_groups)
+            value_states = repeat_kv_flash(value_states, self.num_key_value_groups)
+        else:
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
 
         attn_weights = torch.matmul(query_states, key_states.transpose(
             2, 3)) * math.sqrt(self.config.dim_model_base_attn) / self.head_dim
@@ -646,7 +696,10 @@ class YuLanMiniAttention(nn.Module):
                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
                 f" {attn_output.size()}")
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
+        if FLASH_ROPE:
+            attn_output = attn_output.contiguous()
+        else:
+            attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
 
         attn_output = self.o_proj(attn_output)
@@ -655,7 +708,7 @@ class YuLanMiniAttention(nn.Module):
         if not output_attentions:
             attn_weights = None
 
-        return attn_output, attn_weights, past_key_values
+        return attn_output, attn_weights, None
 
 class YuLanMiniFlashAttention2(YuLanMiniAttention):
     """
@@ -697,22 +750,34 @@ class YuLanMiniFlashAttention2(YuLanMiniAttention):
         key_states = key_states * self.k_proj_alpha
         value_states = self.v_proj(hidden_states)
         value_states = value_states * self.v_proj_alpha
+        self.log_hidden_states("query_states", query_states)
+        self.log_hidden_states("key_states", key_states)
+        self.log_hidden_states("value_states", value_states)
 
         # Flash attention requires the input to have the shape
         # batch_size x seq_length x head_dim x hidden_dim
         # therefore we just need to keep the original shape
-        query_states = query_states.view(bsz, q_len, self.num_heads,
-                                         self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
-                                     self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
-                                         self.head_dim).transpose(1, 2)
+        if FLASH_ROPE:
+            query_states = query_states.view(bsz, q_len, self.num_heads,
+                                            self.head_dim)
+            key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
+                                        self.head_dim)
+            value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
+                                            self.head_dim)
+        else:
+            query_states = query_states.view(bsz, q_len, self.num_heads,
+                                            self.head_dim).transpose(1, 2)
+            key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
+                                        self.head_dim).transpose(1, 2)
+            value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
+                                            self.head_dim).transpose(1, 2)
 
         if self.qk_layernorm:
+            raise NotImplementedError("qk_layernorm is not implemented")
             query_states = self.q_layernorm(query_states)
             key_states = self.k_layernorm(key_states)
 
-        kv_seq_len = key_states.shape[-2]
+        kv_seq_len = key_states.shape[-3 if FLASH_ROPE else -2]
         if past_key_value is not None:
             if self.layer_idx is None:
                 raise ValueError(
@@ -729,6 +794,8 @@ class YuLanMiniFlashAttention2(YuLanMiniAttention):
                                                         sin,
                                                         position_ids=position_ids,
                                                         fast=True)
+        self.log_hidden_states("query_states_after_rope", query_states)
+        self.log_hidden_states("key_states_after_rope", key_states)
 
         if past_key_value is not None:
             # Activate slicing cache only if the config has a value `sliding_windows` attribute
@@ -768,8 +835,12 @@ class YuLanMiniFlashAttention2(YuLanMiniAttention):
 
         # todo: check if we need to repeat_kv
         # repeat k/v heads if n_kv_heads < n_heads
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
+        if FLASH_ROPE:
+            key_states = repeat_kv_flash(key_states, self.num_key_value_groups)
+            value_states = repeat_kv_flash(value_states, self.num_key_value_groups)
+        else:
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
         dropout_rate = 0.0 if not self.training else self.attention_dropout
 
         # In PEFT, usually we cast the layer norms in float32 for training stability reasons
@@ -799,9 +870,10 @@ class YuLanMiniFlashAttention2(YuLanMiniAttention):
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
         # to be able to avoid many of these transpose/reshape/view.
-        query_states = query_states.transpose(1, 2)
-        key_states = key_states.transpose(1, 2)
-        value_states = value_states.transpose(1, 2)
+        if not FLASH_ROPE:
+            query_states = query_states.transpose(1, 2)
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
 
         if (self.config.use_sliding_window
                 and getattr(self.config, "sliding_window", None) is not None
@@ -948,13 +1020,13 @@ class YuLanMiniDecoderLayer(nn.Module):
         hidden_states = hidden_states * self.gate_up_proj_alpha
         hidden_states = self.mlp(hidden_states)
         hidden_states = hidden_states * self.down_proj_alpha
-        # log_hidden_states("5_mlp", hidden_states)
+        log_hidden_states("5_mlp", hidden_states)
 
         if 0 <= shrink < 1:
             # hidden_states = hidden_states * shrink + hidden_states.detach() * (1 - shrink)
             hidden_states = hidden_states * shrink
         hidden_states = residual + hidden_states
-        # log_hidden_states("6_mlp_res", hidden_states)
+        log_hidden_states("6_mlp_res", hidden_states)
 
         outputs = (hidden_states, )
         # log_weights("down_weight", self.mlp.down_proj.weight)
@@ -1358,7 +1430,7 @@ class YuLanMiniModel(YuLanMiniPreTrainedModel):
         hidden_states = hidden_states.to(torch.float32)
         hidden_states = self.norm(hidden_states) * self.config.ln_scale * self.norm_alpha
         hidden_states = hidden_states.to(old_dtype)
-        self.log_hidden_states(7, "0_norm", hidden_states)
+        self.log_hidden_states(56, "0_norm", hidden_states)
 
         # add hidden states from the last decoder layer
         if output_hidden_states:
@@ -1551,15 +1623,46 @@ class YuLanMiniModelForCausalLM(YuLanMiniPreTrainedModel):
             if self.config.dim_model_base_logits is not None and self.config.hidden_size != self.config.dim_model_base_logits:
                 hidden_states = hidden_states / (self.config.hidden_size / self.config.dim_model_base_logits)
 
-            hidden_states = hidden_states * self.lm_head_alpha
-            shift_hidden_states = hidden_states[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
+            liger = True
+            if not liger:
+                logits = self.lm_head(hidden_states).float()
 
-            shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
-            shift_labels = shift_labels.view(-1)
+                # Shift so that tokens < n predict n
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                # Flatten the tokens
+                loss_fct = CrossEntropyLoss()
+                shift_logits = shift_logits.view(-1, self.config.vocab_size)
+                shift_labels = shift_labels.view(-1)
+                # Enable model parallelism
+                shift_labels = shift_labels.to(shift_logits.device)
+                loss = loss_fct(shift_logits, shift_labels)
+            else:
+                hidden_states = hidden_states * self.lm_head_alpha
+                shift_hidden_states = hidden_states[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
 
-            lce = LigerFusedLinearCrossEntropyLoss(lse_square_scale=self.config.z_loss)
-            loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels)
+                shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+                shift_labels = shift_labels.view(-1)
+
+                lce = LigerFusedLinearCrossEntropyLoss(lse_square_scale=self.config.z_loss)
+                loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels)
+            
+            # print(loss)
+            # check nan
+            if torch.isnan(loss):
+                if not liger:
+                    print(shift_logits[:10,:10], shift_labels[:10])
+                    print(self.lm_head.weight.dtype)
+                    print(hidden_states.dtype)
+                    print(shift_labels.dtype)
+                else:
+                    print(shift_hidden_states[:10,:10], shift_labels[:10])
+                    print(self.lm_head.weight.dtype)
+                    print(hidden_states.dtype)
+                    print(shift_labels.dtype)
+                print(loss)
+                exit()
 
         return CausalLMOutputWithPast(
             loss=loss,
