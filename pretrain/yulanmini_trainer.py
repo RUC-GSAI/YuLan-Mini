@@ -199,6 +199,8 @@ class YuLanMiniTrainer(Trainer):
             self._created_lr_scheduler = False
 
         if self.is_deepspeed_enabled:
+            # MODIFIED BY YULANMINI
+            optimizer_grouped_parameters = self.get_optimizer_grouped_parameters() if hasattr(self, "get_optimizer_grouped_parameters") else None
             self.optimizer, self.lr_scheduler = deepspeed_init(self, num_training_steps=max_steps)
 
         if not delay_optimizer_creation:
